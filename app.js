@@ -1426,6 +1426,27 @@ function showConfirm(title, message, confirmLabel, onConfirm, isDanger) {
   };
 }
 
+function showAlert(title, message, onOk) {
+  const root = document.getElementById('modal-root');
+  root.className = 'modal-backdrop';
+  root.innerHTML =
+    '<div class="modal-sheet" role="dialog" aria-modal="true" aria-label="' + escapeHtml(title) + '">' +
+      '<div class="h2">' + escapeHtml(title) + '</div>' +
+      '<div class="label" style="font-size:15px;color:var(--text);">' + escapeHtml(message) + '</div>' +
+      '<div class="row" style="justify-content:flex-end;">' +
+        '<button type="button" class="btn btn-primary btn-sm" style="width:auto;" id="modal-alert-ok" aria-label="OK">OK</button>' +
+      '</div>' +
+    '</div>';
+
+  function close() {
+    root.className = 'hidden';
+    root.innerHTML = '';
+    if (onOk) onOk();
+  }
+  root.onclick = function (e) { if (e.target === root) close(); };
+  document.getElementById('modal-alert-ok').onclick = close;
+}
+
 /* ============================================================
    NAVIGATION & RENDER ROUTER
    ============================================================ */
@@ -1932,7 +1953,7 @@ function renderSingleSetControls(exId, setIdx, subKey, repVal, weightVal, isDone
         '<span class="control-label">' + escapeHtml(unitLabel) + '</span>' +
         '<div class="stepper">' +
           '<button type="button" class="step-btn" data-action="w-minus" ' + keyAttr + ' aria-label="Decrease weight by 2.5 kg"' + (isDone ? ' disabled' : '') + '>-2.5</button>' +
-          '<input type="number" inputmode="decimal" step="any" min="0" class="weight-input tabular" data-action="w-input" ' + keyAttr + ' value="' + formatWeight(weightVal) + '" aria-label="Weight in ' + escapeHtml(unitLabel) + '"' + (isDone ? ' disabled' : '') + '>' +
+          '<input type="number" inputmode="decimal" step="any" min="0.1" class="weight-input tabular" data-action="w-input" ' + keyAttr + ' placeholder="0" value="' + (weightVal > 0 ? formatWeight(weightVal) : '') + '" aria-label="Weight in ' + escapeHtml(unitLabel) + '"' + (isDone ? ' disabled' : '') + '>' +
           '<button type="button" class="step-btn" data-action="w-plus" ' + keyAttr + ' aria-label="Increase weight by 2.5 kg"' + (isDone ? ' disabled' : '') + '>+2.5</button>' +
         '</div>' +
       '</div>' +
@@ -2254,6 +2275,22 @@ function bindWorkoutEvents() {
         saveData();
         render();
       } else if (act === 'done') {
+        const repNum = Number(info.target.reps) || 0;
+        const weightNum = Number(info.target.weight) || 0;
+        if (repNum <= 0 || weightNum <= 0) {
+          showAlert(
+            'Enter weight and reps',
+            'Both ' + (ex.unit || 'kg') + ' and reps are required. 0 is not allowed.',
+            function () {
+              if (weightNum <= 0) {
+                const subSel = info.sub ? '[data-sub="' + info.sub + '"]' : ':not([data-sub])';
+                const inp = document.querySelector('input[data-action="w-input"][data-ex="' + info.exId + '"][data-set="' + info.setIdx + '"]' + subSel);
+                if (inp) inp.focus();
+              }
+            }
+          );
+          return;
+        }
         unlockAudio();
         vibrate(15);
         if (!session.startedAt) {
@@ -2896,8 +2933,12 @@ function bindHistoryResultEvents() {
         const target = e.sub ? st[e.sub] : st;
         const r = parseInt(document.getElementById('edit-reps').value, 10);
         const w = parseFloat(document.getElementById('edit-weight').value);
-        if (!isNaN(r) && r >= 1) target.reps = r;
-        if (!isNaN(w) && w >= 0) target.weight = w;
+        if (isNaN(r) || r < 1 || isNaN(w) || w <= 0) {
+          showAlert('Invalid values', 'Both weight and reps must be greater than 0.');
+          return;
+        }
+        target.reps = r;
+        target.weight = w;
         saveData();
       }
       ui.editingSet = null;
