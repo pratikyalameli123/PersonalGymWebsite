@@ -1,40 +1,11 @@
 /* ============================================================
-   INLINE SVG ICON & WEB APP MANIFEST
+   PWA SERVICE WORKER REGISTRATION (offline support over HTTPS)
    ============================================================ */
-(function () {
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#141414"/><g stroke="#FAFAF9" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none"><line x1="156" y1="256" x2="356" y2="256"/><rect x="108" y="180" width="48" height="152" rx="14"/><rect x="356" y="180" width="48" height="152" rx="14"/><line x1="80" y1="216" x2="80" y2="296"/><line x1="432" y1="216" x2="432" y2="296"/></g></svg>';
-  const iconUri = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-
-  const iconLink = document.createElement('link');
-  iconLink.rel = 'icon';
-  iconLink.href = iconUri;
-  document.head.appendChild(iconLink);
-
-  const appleIcon = document.createElement('link');
-  appleIcon.rel = 'apple-touch-icon';
-  appleIcon.href = iconUri;
-  document.head.appendChild(appleIcon);
-
-  const manifest = {
-    name: 'Workout',
-    short_name: 'Workout',
-    start_url: './',
-    display: 'standalone',
-    orientation: 'portrait',
-    background_color: '#FAFAF9',
-    theme_color: '#FAFAF9',
-    icons: [{ src: iconUri, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }]
-  };
-  const manifestLink = document.createElement('link');
-  manifestLink.rel = 'manifest';
-  try {
-    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
-    manifestLink.href = URL.createObjectURL(blob);
-  } catch (e) {
-    manifestLink.href = 'data:application/manifest+json;charset=utf-8,' + encodeURIComponent(JSON.stringify(manifest));
-  }
-  document.head.appendChild(manifestLink);
-})();
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('./sw.js').catch(function () {});
+  });
+}
 
 /* ============================================================
    MEDIA: Default exercise URLs (1 GIF URL or 2 still URLs)

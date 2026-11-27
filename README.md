@@ -11,6 +11,10 @@ A lightweight, mobile-first personal workout tracker that runs locally in the br
 - **Custom Plan & Image Uploads**: Edit exercise names, form cues, sets, rep ranges, rest times, and upload custom exercise images stored in IndexedDB.
 - **Theme & Backup**: Auto/Light/Dark theme toggle, plus full JSON backup and restore (including custom images).
 
+## Install as a Mobile App (PWA)
+
+Once hosted over HTTPS (e.g., GitHub Pages, Cloudflare Pages, or Netlify), open the site on your phone and tap **Install app** (Android Chrome) or **Share → Add to Home Screen** (iOS Safari). The service worker (`sw.js`) caches the app shell so it works offline.
+
 ## Running Locally
 
 Open `index.html` directly in your browser, or serve the folder with any static server:
