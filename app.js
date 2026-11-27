@@ -448,6 +448,9 @@ const ui = {
   calendarYear: initNow.getFullYear(),
   calendarMonth: initNow.getMonth(),
   selectedHistoryDate: toLocalDateStr(initNow),
+  lastDateStr: toLocalDateStr(initNow),
+  settingsSubScreen: 'settings',
+  tabScroll: { home: 0, progress: 0, settings: 0, history: 0 },
   historySearch: '',
   addExImages: []
 };
@@ -1071,8 +1074,13 @@ function releaseWakeLock() {
 }
 
 document.addEventListener('visibilitychange', function () {
-  if (document.visibilityState === 'visible' && ui.screen === 'workout') {
-    requestWakeLock();
+  if (document.visibilityState === 'visible') {
+    if (ui.screen === 'workout') requestWakeLock();
+    const todayStr = toLocalDateStr(new Date());
+    if (todayStr !== ui.lastDateStr) {
+      ui.lastDateStr = todayStr;
+      render();
+    }
   }
 });
 
@@ -1433,10 +1441,14 @@ function render() {
   const inWorkout = ui.screen === 'workout';
 
   document.body.classList.toggle('in-workout', inWorkout);
-  nav.classList.toggle('hidden', inWorkout || ui.screen === 'finish' || ui.screen === 'edit-plan');
+  nav.classList.remove('hidden');
+
+  const activeTab = (ui.screen === 'edit-plan')
+    ? 'settings'
+    : ((ui.screen === 'workout' || ui.screen === 'finish') ? 'home' : ui.screen);
 
   document.querySelectorAll('.nav-btn').forEach(function (btn) {
-    btn.classList.toggle('active', btn.dataset.tab === ui.screen);
+    btn.classList.toggle('active', btn.dataset.tab === activeTab);
   });
 
   if (inWorkout) {
@@ -1479,9 +1491,26 @@ function render() {
 
 document.querySelectorAll('.nav-btn').forEach(function (btn) {
   btn.addEventListener('click', function () {
-    ui.screen = btn.dataset.tab;
+    const curTab = (ui.screen === 'edit-plan')
+      ? 'settings'
+      : ((ui.screen === 'workout' || ui.screen === 'finish') ? 'home' : ui.screen);
+    ui.tabScroll[curTab] = window.scrollY || 0;
+
+    const targetTab = btn.dataset.tab;
+    if (targetTab === 'settings') {
+      if (curTab !== 'settings') {
+        ui.screen = ui.settingsSubScreen || 'settings';
+      } else {
+        ui.settingsSubScreen = 'settings';
+        ui.screen = 'settings';
+        ui.tabScroll.settings = 0;
+      }
+    } else {
+      ui.screen = targetTab;
+    }
+
     render();
-    window.scrollTo(0, 0);
+    window.scrollTo(0, ui.tabScroll[targetTab] || 0);
   });
 });
 
@@ -1554,11 +1583,8 @@ function renderHomeHtml() {
   return (
     '<div class="stack">' +
       '<div class="home-header home-anim">' +
-        '<div>' +
-          '<span class="week-pill">' + escapeHtml(formatWeekLabel(weekInfo.key)) + '</span>' +
-          '<h1 class="home-title">Workout</h1>' +
-        '</div>' +
-        '<span class="home-count-pill tabular">' + doneCount + ' / ' + totalPlans + ' done</span>' +
+        '<span class="week-pill">' + escapeHtml(formatWeekLabel(weekInfo.key)) + '</span>' +
+        '<h1 class="home-title">Workout</h1>' +
       '</div>' +
       '<button type="button" class="home-cta home-anim home-anim-d1" id="home-primary-btn" aria-label="' + escapeHtml(primaryLabel) + '">' +
         '<div>' +
@@ -1570,8 +1596,8 @@ function renderHomeHtml() {
       tomorrowHtml +
       '<div class="workout-list home-anim home-anim-d2">' + listHtml + '</div>' +
       '<div class="dot-strip home-anim home-anim-d3" aria-label="Days trained this week">' + dotsHtml + '</div>' +
-      '<div class="stack-sm home-anim home-anim-d3" style="gap:4px;">' +
-        '<div class="label" style="text-align:center;">' + doneCount + ' of ' + totalPlans + ' workouts done this week</div>' +
+      '<div class="stack-sm home-anim home-anim-d3" style="gap:6px;align-items:center;text-align:center;">' +
+        '<span class="home-count-pill tabular">' + doneCount + ' / ' + totalPlans + ' done this week</span>' +
         '<div class="streak-line">' + escapeHtml(streakText) + '</div>' +
       '</div>' +
     '</div>'
@@ -3081,6 +3107,7 @@ function bindSettingsEvents() {
   document.querySelectorAll('[data-edit-plan-id]').forEach(function (btn) {
     btn.onclick = function () {
       ui.editPlanWorkoutId = Number(btn.dataset.editPlanId);
+      ui.settingsSubScreen = 'edit-plan';
       ui.screen = 'edit-plan';
       render();
       window.scrollTo(0, 0);
@@ -3127,6 +3154,7 @@ function bindSettingsEvents() {
   }
 
   document.getElementById('open-edit-plan').onclick = function () {
+    ui.settingsSubScreen = 'edit-plan';
     ui.screen = 'edit-plan';
     render();
     window.scrollTo(0, 0);
@@ -3419,6 +3447,7 @@ function bindEditPlanEvents() {
   const curWorkout = getPlanWorkoutDef(ui.editPlanWorkoutId);
 
   document.getElementById('edit-plan-back').onclick = function () {
+    ui.settingsSubScreen = 'settings';
     ui.screen = 'settings';
     render();
     window.scrollTo(0, 0);
