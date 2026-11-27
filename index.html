@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#FAFAF9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111111" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Workout">
+  <title>Workout</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main id="app" aria-live="polite"></main>
+
+  <div id="rest-bar" class="rest-bar hidden" role="region" aria-label="Rest timer"></div>
+
+  <nav id="bottom-nav" class="bottom-nav" aria-label="Primary navigation">
+    <div class="bottom-nav-inner">
+      <button type="button" class="nav-btn active" data-tab="home" aria-label="Home">Home</button>
+      <button type="button" class="nav-btn" data-tab="progress" aria-label="Progress">Progress</button>
+      <button type="button" class="nav-btn" data-tab="settings" aria-label="Settings">Settings</button>
+      <button type="button" class="nav-btn" data-tab="history" aria-label="History">History</button>
+    </div>
+  </nav>
+
+  <div id="modal-root" class="hidden"></div>
+</body>
+</html>
