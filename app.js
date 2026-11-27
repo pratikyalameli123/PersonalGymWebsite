@@ -317,6 +317,111 @@ if (navigator.storage && navigator.storage.persist) {
 }
 
 /* ============================================================
+   INDEXEDDB STORAGE FOR CUSTOM EXERCISE IMAGES
+   ============================================================ */
+const IDB_NAME = 'gymTrackerMedia';
+const IDB_STORE = 'exerciseImages';
+let mediaCache = {};
+
+function openMediaDb() {
+  return new Promise(function (resolve, reject) {
+    if (!('indexedDB' in window)) {
+      reject(new Error('IndexedDB not supported'));
+      return;
+    }
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = function (e) {
+      const idb = e.target.result;
+      if (!idb.objectStoreNames.contains(IDB_STORE)) {
+        idb.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = function (e) { resolve(e.target.result); };
+    req.onerror = function (e) { reject(e.target.error || new Error('IndexedDB open failed')); };
+  });
+}
+
+function saveExerciseMedia(exId, urls) {
+  if (!urls || !urls.length) {
+    return deleteExerciseMedia(exId);
+  }
+  mediaCache[exId] = urls.slice();
+  return openMediaDb().then(function (idb) {
+    return new Promise(function (resolve, reject) {
+      const tx = idb.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).put(urls.slice(), exId);
+      tx.oncomplete = function () { idb.close(); resolve(); };
+      tx.onerror = function () { idb.close(); reject(tx.error); };
+    });
+  }).catch(function () {});
+}
+
+function deleteExerciseMedia(exId) {
+  delete mediaCache[exId];
+  return openMediaDb().then(function (idb) {
+    return new Promise(function (resolve, reject) {
+      const tx = idb.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).delete(exId);
+      tx.oncomplete = function () { idb.close(); resolve(); };
+      tx.onerror = function () { idb.close(); reject(tx.error); };
+    });
+  }).catch(function () {});
+}
+
+function clearAllCustomMedia() {
+  mediaCache = {};
+  return openMediaDb().then(function (idb) {
+    return new Promise(function (resolve, reject) {
+      const tx = idb.transaction(IDB_STORE, 'readwrite');
+      tx.objectStore(IDB_STORE).clear();
+      tx.oncomplete = function () { idb.close(); resolve(); };
+      tx.onerror = function () { idb.close(); reject(tx.error); };
+    });
+  }).catch(function () {});
+}
+
+function loadAllCustomMedia() {
+  return openMediaDb().then(function (idb) {
+    return new Promise(function (resolve) {
+      const tx = idb.transaction(IDB_STORE, 'readonly');
+      const store = tx.objectStore(IDB_STORE);
+      const req = store.openCursor();
+      const loaded = {};
+      req.onsuccess = function (e) {
+        const cursor = e.target.result;
+        if (cursor) {
+          if (Array.isArray(cursor.value) && cursor.value.length) {
+            loaded[cursor.key] = cursor.value;
+          }
+          cursor.continue();
+        } else {
+          mediaCache = Object.assign({}, loaded, mediaCache);
+          idb.close();
+          resolve(mediaCache);
+        }
+      };
+      req.onerror = function () { idb.close(); resolve(mediaCache); };
+    });
+  }).catch(function () { return mediaCache; });
+}
+
+function migrateLegacyImagesToIdb() {
+  if (!db.plan || !db.plan.exercises) return Promise.resolve();
+  const tasks = [];
+  let changed = false;
+  Object.keys(db.plan.exercises).forEach(function (exId) {
+    const ex = db.plan.exercises[exId];
+    if (ex && Array.isArray(ex.images) && ex.images.length) {
+      tasks.push(saveExerciseMedia(exId, ex.images));
+      delete ex.images;
+      changed = true;
+    }
+  });
+  if (changed) saveData();
+  return Promise.all(tasks);
+}
+
+/* ============================================================
    DATE & ISO WEEK HELPERS
    ============================================================ */
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -397,6 +502,7 @@ function getItemRestSeconds(item, ex) {
 }
 
 function getExerciseMediaUrls(exId, ex) {
+  if (Array.isArray(mediaCache[exId]) && mediaCache[exId].length) return mediaCache[exId];
   if (ex && Array.isArray(ex.images) && ex.images.length) return ex.images;
   const planEx = db.plan && db.plan.exercises && db.plan.exercises[exId];
   if (planEx && Array.isArray(planEx.images) && planEx.images.length) return planEx.images;
@@ -878,8 +984,9 @@ function createSession(workoutId) {
   const notes = {};
   const snapshotExercises = {};
   const snapshotItems = def.items.map(function (it) {
-    const ex = getExerciseDef(it.exId, null);
-    snapshotExercises[it.exId] = JSON.parse(JSON.stringify(ex));
+    const ex = JSON.parse(JSON.stringify(getExerciseDef(it.exId, null)));
+    delete ex.images;
+    snapshotExercises[it.exId] = ex;
     return JSON.parse(JSON.stringify(it));
   });
 
@@ -2708,7 +2815,15 @@ function bindSettingsEvents() {
 
   document.getElementById('backup-download').onclick = function () {
     const name = 'workout-backup-' + toLocalDateStr(new Date()) + '.json';
-    downloadFile(name, JSON.stringify(db, null, 2), 'application/json');
+    const exportDb = JSON.parse(JSON.stringify(db));
+    if (exportDb.plan && exportDb.plan.exercises) {
+      Object.keys(mediaCache).forEach(function (exId) {
+        if (exportDb.plan.exercises[exId] && Array.isArray(mediaCache[exId]) && mediaCache[exId].length) {
+          exportDb.plan.exercises[exId].images = mediaCache[exId].slice();
+        }
+      });
+    }
+    downloadFile(name, JSON.stringify(exportDb, null, 2), 'application/json');
   };
 
   const fileInput = document.getElementById('backup-file');
@@ -2730,9 +2845,13 @@ function bindSettingsEvents() {
           'Restore',
           function () {
             db = normalizeData(parsed);
-            saveData();
-            ui.activeSessionRef = null;
-            render();
+            clearAllCustomMedia().then(function () {
+              return migrateLegacyImagesToIdb();
+            }).then(function () {
+              saveData();
+              ui.activeSessionRef = null;
+              render();
+            });
           },
           true
         );
@@ -2752,10 +2871,12 @@ function bindSettingsEvents() {
       function () {
         db = defaultData();
         saveData();
-        stopRestTimer();
-        ui.activeSessionRef = null;
-        ui.screen = 'home';
-        render();
+        clearAllCustomMedia().then(function () {
+          stopRestTimer();
+          ui.activeSessionRef = null;
+          ui.screen = 'home';
+          render();
+        });
       },
       true
     );
@@ -2790,7 +2911,7 @@ function renderEditPlanHtml() {
   const itemsHtml = curWorkout.items.map(function (item, idx) {
     const ex = getExerciseDef(item.exId, null);
     const restVal = getItemRestSeconds(item, ex);
-    const hasCustomImgs = Array.isArray(ex.images) && ex.images.length > 0;
+    const hasCustomImgs = Array.isArray(mediaCache[item.exId]) && mediaCache[item.exId].length > 0;
     const displayImgs = getExerciseMediaUrls(item.exId, ex);
 
     const thumbsHtml = displayImgs.length
@@ -3026,10 +3147,10 @@ function bindEditPlanEvents() {
       if (!files.length || !db.plan.exercises[exId]) return;
       Promise.all(files.map(compressImageFile))
         .then(function (dataUrls) {
-          const ex = db.plan.exercises[exId];
-          if (!Array.isArray(ex.images)) ex.images = [];
-          ex.images = ex.images.concat(dataUrls);
-          saveData();
+          const existing = Array.isArray(mediaCache[exId]) ? mediaCache[exId] : [];
+          return saveExerciseMedia(exId, existing.concat(dataUrls));
+        })
+        .then(function () {
           render();
         })
         .catch(function () {});
@@ -3041,23 +3162,21 @@ function bindEditPlanEvents() {
     btn.onclick = function () {
       const exId = btn.dataset.removeExImg;
       const imgIdx = Number(btn.dataset.imgIdx);
-      const ex = db.plan.exercises[exId];
-      if (!ex || !Array.isArray(ex.images)) return;
-      ex.images.splice(imgIdx, 1);
-      if (ex.images.length === 0) delete ex.images;
-      saveData();
-      render();
+      const existing = Array.isArray(mediaCache[exId]) ? mediaCache[exId].slice() : [];
+      if (!existing.length) return;
+      existing.splice(imgIdx, 1);
+      saveExerciseMedia(exId, existing).then(function () {
+        render();
+      });
     };
   });
 
   document.querySelectorAll('[data-reset-ex-img]').forEach(function (btn) {
     btn.onclick = function () {
       const exId = btn.dataset.resetExImg;
-      if (db.plan.exercises[exId]) {
-        delete db.plan.exercises[exId].images;
-        saveData();
+      deleteExerciseMedia(exId).then(function () {
         render();
-      }
+      });
     };
   });
 
@@ -3106,9 +3225,7 @@ function bindEditPlanEvents() {
       excludeFromVolume: unit === 'kg assistance',
       cue: cue || 'Control the lowering phase and move through a full range of motion.'
     };
-    if (ui.addExImages.length) {
-      newEx.images = ui.addExImages.slice();
-    }
+    const pendingImages = ui.addExImages.slice();
     db.plan.exercises[exId] = newEx;
     curWorkout.items.push({
       exId: exId,
@@ -3119,7 +3236,13 @@ function bindEditPlanEvents() {
     });
     ui.addExImages = [];
     saveData();
-    render();
+    if (pendingImages.length) {
+      saveExerciseMedia(exId, pendingImages).then(function () {
+        render();
+      });
+    } else {
+      render();
+    }
   };
 
   document.getElementById('reset-plan-btn').onclick = function () {
@@ -3131,7 +3254,9 @@ function bindEditPlanEvents() {
         db.plan = cloneDefaultPlan();
         ui.addExImages = [];
         saveData();
-        render();
+        clearAllCustomMedia().then(function () {
+          render();
+        });
       },
       true
     );
@@ -3143,3 +3268,8 @@ function bindEditPlanEvents() {
    ============================================================ */
 startSessionClockLoop();
 render();
+migrateLegacyImagesToIdb().then(loadAllCustomMedia).then(function () {
+  if (ui.screen === 'workout' || ui.screen === 'edit-plan') {
+    render();
+  }
+});
