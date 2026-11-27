@@ -4,7 +4,7 @@ A lightweight, mobile-first personal workout tracker that runs locally in the br
 
 ## Features
 
-- **4-Day Workout Split**: Push, Pull, Legs, and Upper workouts (all renameable) with a configurable target pace clock, `+ Add set` mid-workout, automatic rest timer (with sound & haptics), and double-progression weight/rep suggestions.
+- **Flexible Workout Split (1–7 Plans)**: Starts with Push, Pull, Legs, and Upper (all renameable and reorderable in Settings, with up to 7 workout plans), configurable target pace clock, `+ Add set` mid-workout, automatic rest timer (with sound & haptics), and double-progression weight/rep suggestions.
 - **Personal Records & Progress**: Automatic PR detection with confetti celebration, per-exercise top-set weight and volume charts, 12-week total volume bar chart, and bodyweight tracking.
 - **Tomorrow's Review / Plan**: Post-workout review box to note what to try or change next session, surfaced right on the Home screen.
 - **Calendar & History**: Interactive monthly calendar showing workout days—click any date to inspect or delete workouts, search across exercises/workouts/notes, and export monthly CSVs.

@@ -253,7 +253,7 @@ function defaultData() {
 function normalizeData(parsed) {
   if (!parsed || typeof parsed !== 'object' || !parsed.weeks) return defaultData();
   let plan = cloneDefaultPlan();
-  if (parsed.plan && parsed.plan.exercises && Array.isArray(parsed.plan.workouts) && parsed.plan.workouts.length === 4) {
+  if (parsed.plan && parsed.plan.exercises && Array.isArray(parsed.plan.workouts) && parsed.plan.workouts.length >= 1 && parsed.plan.workouts.length <= 7) {
     plan = {
       exercises: Object.assign({}, cloneDefaultPlan().exercises, parsed.plan.exercises),
       workouts: parsed.plan.workouts
@@ -661,9 +661,13 @@ function getSessionByRef(ref) {
 }
 
 function getNextWorkoutId() {
+  const workouts = getPlanWorkouts();
+  if (!workouts.length) return 1;
   const all = getAllSessions().filter(function (x) { return x.session.finished; });
-  if (!all.length) return 1;
-  return (all[0].session.workout % 4) + 1;
+  if (!all.length) return workouts[0].id;
+  const idx = workouts.findIndex(function (w) { return w.id === all[0].session.workout; });
+  if (idx === -1) return workouts[0].id;
+  return workouts[(idx + 1) % workouts.length].id;
 }
 
 function getLastFinishedForWorkout(workoutId, excludeSessionId) {
@@ -699,7 +703,7 @@ function getLastExerciseHistory(exId, excludeSessionId) {
   return null;
 }
 
-/* Streak: consecutive ISO weeks with all 4 workouts completed (current unfinished week never breaks streak) */
+/* Streak: consecutive ISO weeks with all planned workouts completed (current unfinished week never breaks streak) */
 function isWeekCompleteAll4(weekKey) {
   const wk = db.weeks[weekKey];
   if (!wk || !Array.isArray(wk.sessions)) return false;
@@ -709,7 +713,8 @@ function isWeekCompleteAll4(weekKey) {
       doneIds[s.workout] = true;
     }
   });
-  return Object.keys(doneIds).length >= 4;
+  const targetCount = Math.max(1, getPlanWorkouts().length);
+  return Object.keys(doneIds).length >= targetCount;
 }
 
 function computeFourWorkoutStreak() {
@@ -1499,20 +1504,25 @@ function renderHomeHtml() {
     completedDays[idx] = true;
   });
 
+  const workouts = getPlanWorkouts();
+  const totalPlans = Math.max(1, workouts.length);
   const doneCount = Object.keys(completedIds).length;
   const nextId = active ? active.session.workout : getNextWorkoutId();
   const nextDef = active ? getSessionWorkoutMeta(active.session) : getPlanWorkoutDef(nextId);
   const primaryLabel = active ? 'Resume ' + nextDef.name : 'Start ' + nextDef.name;
   const primarySub = nextDef.items.length + ' exercises · ' + getTargetMinutes() + ' min';
 
-  const listHtml = getPlanWorkouts().map(function (w) {
+  const listHtml = workouts.map(function (w, idx) {
     const isDone = !!completedIds[w.id];
     const isInProgress = active && active.session.workout === w.id;
     return (
       '<button type="button" class="workout-item" data-start-workout="' + w.id + '" aria-label="Start ' + escapeHtml(w.name) + '">' +
-        '<div>' +
-          '<div class="workout-item-title">Workout ' + w.id + ' · ' + escapeHtml(w.name) + '</div>' +
-          '<div class="workout-item-meta">' + w.items.length + ' exercises' + (isInProgress ? ' · In progress' : '') + '</div>' +
+        '<div class="workout-item-left">' +
+          '<span class="workout-num tabular">' + (idx + 1) + '</span>' +
+          '<div>' +
+            '<div class="workout-item-title">' + escapeHtml(w.name) + '</div>' +
+            '<div class="workout-item-meta">' + w.items.length + ' exercise' + (w.items.length === 1 ? '' : 's') + (isInProgress ? ' · In progress' : '') + '</div>' +
+          '</div>' +
         '</div>' +
         (isDone ? '<span class="check-badge" aria-label="Completed this week">' + SVG_CHECK + '</span>' : '<span class="label">Start</span>') +
       '</button>'
@@ -1525,12 +1535,12 @@ function renderHomeHtml() {
   }).join('');
 
   const streak = computeFourWorkoutStreak();
-  const streakText = streak + (streak === 1 ? ' week' : ' weeks') + ' in a row with all 4 workouts';
+  const streakText = streak + (streak === 1 ? ' week' : ' weeks') + ' in a row with all ' + totalPlans + ' workouts';
 
   const tp = db.tomorrowPlan || { text: '', workoutId: null };
   const tpWorkoutName = tp.workoutId ? getPlanWorkoutDef(tp.workoutId).name : '';
   const tomorrowHtml = tp.text && tp.text.trim()
-    ? '<div class="tomorrow-card">' +
+    ? '<div class="tomorrow-card home-anim home-anim-d1">' +
         '<div class="between">' +
           '<span class="label" style="color:var(--accent);font-weight:600;">Tomorrow\'s plan' + (tpWorkoutName ? ' · ' + escapeHtml(tpWorkoutName) : '') + '</span>' +
           '<button type="button" class="btn btn-ghost btn-sm" style="min-height:32px;padding:0 8px;font-size:12px;" id="clear-tomorrow-btn" aria-label="Clear tomorrow plan">Clear</button>' +
@@ -1539,21 +1549,29 @@ function renderHomeHtml() {
       '</div>'
     : '';
 
+  const SVG_ARROW_R = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>';
+
   return (
     '<div class="stack">' +
-      '<div>' +
-        '<div class="label">' + escapeHtml(formatWeekLabel(weekInfo.key)) + '</div>' +
-        '<h1 class="h1" style="margin-top:4px;">Workout</h1>' +
+      '<div class="home-header home-anim">' +
+        '<div>' +
+          '<span class="week-pill">' + escapeHtml(formatWeekLabel(weekInfo.key)) + '</span>' +
+          '<h1 class="home-title">Workout</h1>' +
+        '</div>' +
+        '<span class="home-count-pill tabular">' + doneCount + ' / ' + totalPlans + ' done</span>' +
       '</div>' +
-      '<button type="button" class="btn btn-primary" id="home-primary-btn" aria-label="' + escapeHtml(primaryLabel) + '">' +
-        '<span>' + escapeHtml(primaryLabel) + '</span>' +
-        '<span class="sub">' + escapeHtml(primarySub) + '</span>' +
+      '<button type="button" class="home-cta home-anim home-anim-d1" id="home-primary-btn" aria-label="' + escapeHtml(primaryLabel) + '">' +
+        '<div>' +
+          '<div class="home-cta-title">' + escapeHtml(primaryLabel) + '</div>' +
+          '<div class="home-cta-sub">' + escapeHtml(primarySub) + '</div>' +
+        '</div>' +
+        '<span class="home-cta-arrow">' + SVG_ARROW_R + '</span>' +
       '</button>' +
       tomorrowHtml +
-      '<div class="workout-list">' + listHtml + '</div>' +
-      '<div class="dot-strip" aria-label="Days trained this week">' + dotsHtml + '</div>' +
-      '<div class="stack-sm" style="gap:4px;">' +
-        '<div class="label" style="text-align:center;">' + doneCount + ' of 4 workouts done this week</div>' +
+      '<div class="workout-list home-anim home-anim-d2">' + listHtml + '</div>' +
+      '<div class="dot-strip home-anim home-anim-d3" aria-label="Days trained this week">' + dotsHtml + '</div>' +
+      '<div class="stack-sm home-anim home-anim-d3" style="gap:4px;">' +
+        '<div class="label" style="text-align:center;">' + doneCount + ' of ' + totalPlans + ' workouts done this week</div>' +
         '<div class="streak-line">' + escapeHtml(streakText) + '</div>' +
       '</div>' +
     '</div>'
@@ -2937,9 +2955,45 @@ function bindHistoryEvents() {
    SCREEN 6: SETTINGS & BACKUP (includes Edit plan entry)
    ============================================================ */
 function renderSettingsHtml() {
+  const workouts = getPlanWorkouts();
+  const plansListHtml = workouts.map(function (w, idx) {
+    return (
+      '<div class="setting-row">' +
+        '<div style="min-width:0;">' +
+          '<div style="font-weight:600;">' + (idx + 1) + '. ' + escapeHtml(w.name) + '</div>' +
+          '<div class="label">' + w.items.length + ' exercise' + (w.items.length === 1 ? '' : 's') + '</div>' +
+        '</div>' +
+        '<div class="row" style="gap:6px;flex-shrink:0;">' +
+          '<button type="button" class="btn btn-secondary btn-sm" style="min-height:38px;min-width:38px;padding:0 10px;" data-move-plan-dir="-1" data-move-plan-idx="' + idx + '" aria-label="Move ' + escapeHtml(w.name) + ' up"' + (idx === 0 ? ' disabled' : '') + '>Up</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" style="min-height:38px;min-width:38px;padding:0 10px;" data-move-plan-dir="1" data-move-plan-idx="' + idx + '" aria-label="Move ' + escapeHtml(w.name) + ' down"' + (idx === workouts.length - 1 ? ' disabled' : '') + '>Down</button>' +
+          '<button type="button" class="btn btn-secondary btn-sm" style="min-height:38px;padding:0 10px;" data-edit-plan-id="' + w.id + '" aria-label="Edit ' + escapeHtml(w.name) + '">Edit</button>' +
+          (workouts.length > 1
+            ? '<button type="button" class="btn btn-ghost btn-sm" style="min-height:38px;min-width:36px;padding:0 8px;color:var(--danger);" data-del-plan-idx="' + idx + '" aria-label="Delete ' + escapeHtml(w.name) + '">&times;</button>'
+            : '') +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+
+  const addPlanHtml = workouts.length < 7
+    ? '<div class="row" style="padding-top:6px;">' +
+        '<input type="text" id="new-plan-name" class="note-input" placeholder="New workout name (e.g. Arms)" aria-label="New workout plan name">' +
+        '<button type="button" class="btn btn-primary btn-sm" style="width:auto;padding:0 16px;white-space:nowrap;" id="add-plan-btn" aria-label="Add workout plan">+ Add</button>' +
+      '</div>'
+    : '<div class="label" style="padding-top:6px;">Maximum 7 workout plans reached.</div>';
+
   return (
     '<div class="stack">' +
       '<h1 class="h1">Settings</h1>' +
+      '<div class="card stack-sm">' +
+        '<div class="between">' +
+          '<div class="h2">Workout plans</div>' +
+          '<span class="label tabular">' + workouts.length + ' / 7</span>' +
+        '</div>' +
+        '<div class="label">Reorder to change your rotation, or add up to 7 plans.</div>' +
+        '<div>' + plansListHtml + '</div>' +
+        addPlanHtml +
+      '</div>' +
       '<div class="card">' +
         '<div class="setting-row">' +
           '<div><div style="font-weight:500;">Workout plan</div><div class="label">Rename, reorder, add, upload images or edit targets</div></div>' +
@@ -3010,6 +3064,68 @@ function downloadFile(filename, content, mime) {
 }
 
 function bindSettingsEvents() {
+  document.querySelectorAll('[data-move-plan-idx]').forEach(function (btn) {
+    btn.onclick = function () {
+      const idx = Number(btn.dataset.movePlanIdx);
+      const dir = Number(btn.dataset.movePlanDir);
+      const workouts = getPlanWorkouts();
+      const target = idx + dir;
+      if (target < 0 || target >= workouts.length) return;
+      const moved = workouts.splice(idx, 1)[0];
+      workouts.splice(target, 0, moved);
+      saveData();
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-edit-plan-id]').forEach(function (btn) {
+    btn.onclick = function () {
+      ui.editPlanWorkoutId = Number(btn.dataset.editPlanId);
+      ui.screen = 'edit-plan';
+      render();
+      window.scrollTo(0, 0);
+    };
+  });
+
+  document.querySelectorAll('[data-del-plan-idx]').forEach(function (btn) {
+    btn.onclick = function () {
+      const idx = Number(btn.dataset.delPlanIdx);
+      const workouts = getPlanWorkouts();
+      if (workouts.length <= 1 || !workouts[idx]) return;
+      const w = workouts[idx];
+      showConfirm(
+        'Remove workout plan?',
+        'Remove "' + w.name + '" from your split? Past logged history will stay intact.',
+        'Remove',
+        function () {
+          workouts.splice(idx, 1);
+          if (ui.editPlanWorkoutId === w.id && workouts.length) {
+            ui.editPlanWorkoutId = workouts[0].id;
+          }
+          saveData();
+          render();
+        },
+        true
+      );
+    };
+  });
+
+  const addPlanBtn = document.getElementById('add-plan-btn');
+  if (addPlanBtn) {
+    addPlanBtn.onclick = function () {
+      const workouts = getPlanWorkouts();
+      if (workouts.length >= 7) return;
+      const inp = document.getElementById('new-plan-name');
+      const name = (inp ? inp.value.trim() : '') || ('Workout ' + (workouts.length + 1));
+      const maxId = workouts.reduce(function (m, w) { return Math.max(m, Number(w.id) || 0); }, 0);
+      const newId = maxId + 1;
+      workouts.push({ id: newId, name: name, items: [] });
+      ui.editPlanWorkoutId = newId;
+      saveData();
+      render();
+    };
+  }
+
   document.getElementById('open-edit-plan').onclick = function () {
     ui.screen = 'edit-plan';
     render();
