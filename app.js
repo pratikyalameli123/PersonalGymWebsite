@@ -257,15 +257,24 @@ function cloneDefaultPlan() {
    STORAGE & STATE (backward-compatible gymTracker.v3)
    ============================================================ */
 const STORAGE_KEY = 'gymTracker.v3';
-const TARGET_SECONDS = 35 * 60;
 let storageAvailable = true;
+
+function getTargetMinutes() {
+  const m = db && db.settings ? Number(db.settings.targetMinutes) : 35;
+  return (isFinite(m) && m >= 10 && m <= 120) ? m : 35;
+}
+
+function getTargetSeconds() {
+  return getTargetMinutes() * 60;
+}
 
 function defaultData() {
   return {
     version: 3,
-    settings: { sound: true, restCompound: 90, restIsolation: 60, theme: 'auto' },
+    settings: { sound: true, restCompound: 90, restIsolation: 60, theme: 'auto', targetMinutes: 35 },
     weeks: {},
     bodyweight: [],
+    tomorrowPlan: { text: '', workoutId: null },
     plan: cloneDefaultPlan()
   };
 }
@@ -279,11 +288,16 @@ function normalizeData(parsed) {
       workouts: parsed.plan.workouts
     };
   }
+  const tp = parsed.tomorrowPlan && typeof parsed.tomorrowPlan === 'object' ? parsed.tomorrowPlan : {};
   return {
     version: 3,
-    settings: Object.assign({ sound: true, restCompound: 90, restIsolation: 60, theme: 'auto' }, parsed.settings || {}),
+    settings: Object.assign({ sound: true, restCompound: 90, restIsolation: 60, theme: 'auto', targetMinutes: 35 }, parsed.settings || {}),
     weeks: parsed.weeks || {},
     bodyweight: Array.isArray(parsed.bodyweight) ? parsed.bodyweight : [],
+    tomorrowPlan: {
+      text: typeof tp.text === 'string' ? tp.text : '',
+      workoutId: tp.workoutId ? Number(tp.workoutId) : null
+    },
     plan: plan
   };
 }
@@ -463,6 +477,7 @@ const ui = {
   calendarYear: initNow.getFullYear(),
   calendarMonth: initNow.getMonth(),
   selectedHistoryDate: toLocalDateStr(initNow),
+  historySearch: '',
   addExImages: []
 };
 
@@ -939,12 +954,13 @@ function getSessionStats(session) {
   def.items.forEach(function (item) {
     const ex = getExerciseDef(item.exId, session);
     const isSkipped = session.skipped && session.skipped.indexOf(item.exId) !== -1;
-    totalSets += item.sets;
+    const sets = (session.sets && session.sets[item.exId]) || [];
+    const itemTotal = isSkipped ? item.sets : Math.max(item.sets, sets.length);
+    totalSets += itemTotal;
     if (isSkipped) {
-      doneSets += item.sets;
+      doneSets += itemTotal;
       return;
     }
-    const sets = (session.sets && session.sets[item.exId]) || [];
     sets.forEach(function (st) {
       if (ex.superset) {
         if (st.a && st.a.done && st.b && st.b.done) doneSets += 1;
@@ -1217,7 +1233,7 @@ function startSessionClockLoop() {
 function computePaceText(session, elapsed) {
   const stats = getSessionStats(session);
   if (stats.doneSets === 0 || !session.startedAt) return 'On pace';
-  const expected = TARGET_SECONDS * (stats.doneSets / stats.totalSets);
+  const expected = getTargetSeconds() * (stats.doneSets / stats.totalSets);
   const diff = Math.round(elapsed - expected);
   if (Math.abs(diff) <= 15) return 'On pace';
   const absStr = formatClock(Math.abs(diff)).replace(/^0/, '');
@@ -1359,6 +1375,30 @@ function renderBarChartSvg(bars, opts) {
 }
 
 /* ============================================================
+   CONFETTI CELEBRATION ON PR
+   ============================================================ */
+function launchPrConfetti() {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const layer = document.createElement('div');
+  layer.className = 'confetti-layer';
+  const colors = ['#2F6F4E', '#3F8F66', '#E5A93C', '#3B82F6', '#F04438'];
+  for (let i = 0; i < 28; i++) {
+    const piece = document.createElement('div');
+    piece.className = 'confetti-piece';
+    piece.style.left = Math.round(Math.random() * 100) + 'vw';
+    piece.style.background = colors[i % colors.length];
+    piece.style.setProperty('--dx', Math.round((Math.random() - 0.5) * 140) + 'px');
+    piece.style.setProperty('--rot', Math.round(360 + Math.random() * 540) + 'deg');
+    piece.style.animationDelay = (Math.random() * 0.25).toFixed(2) + 's';
+    layer.appendChild(piece);
+  }
+  document.body.appendChild(layer);
+  setTimeout(function () {
+    if (layer.parentNode) layer.parentNode.removeChild(layer);
+  }, 1800);
+}
+
+/* ============================================================
    CONFIRMATION MODAL
    ============================================================ */
 function showConfirm(title, message, confirmLabel, onConfirm, isDanger) {
@@ -1471,7 +1511,7 @@ function renderHomeHtml() {
   const nextId = active ? active.session.workout : getNextWorkoutId();
   const nextDef = active ? getSessionWorkoutMeta(active.session) : getPlanWorkoutDef(nextId);
   const primaryLabel = active ? 'Resume ' + nextDef.name : 'Start ' + nextDef.name;
-  const primarySub = nextDef.items.length + ' exercises · 35 min';
+  const primarySub = nextDef.items.length + ' exercises · ' + getTargetMinutes() + ' min';
 
   const listHtml = getPlanWorkouts().map(function (w) {
     const isDone = !!completedIds[w.id];
@@ -1495,6 +1535,18 @@ function renderHomeHtml() {
   const streak = computeFourWorkoutStreak();
   const streakText = streak + (streak === 1 ? ' week' : ' weeks') + ' in a row with all 4 workouts';
 
+  const tp = db.tomorrowPlan || { text: '', workoutId: null };
+  const tpWorkoutName = tp.workoutId ? getPlanWorkoutDef(tp.workoutId).name : '';
+  const tomorrowHtml = tp.text && tp.text.trim()
+    ? '<div class="tomorrow-card">' +
+        '<div class="between">' +
+          '<span class="label" style="color:var(--accent);font-weight:600;">Tomorrow\'s plan' + (tpWorkoutName ? ' · ' + escapeHtml(tpWorkoutName) : '') + '</span>' +
+          '<button type="button" class="btn btn-ghost btn-sm" style="min-height:32px;padding:0 8px;font-size:12px;" id="clear-tomorrow-btn" aria-label="Clear tomorrow plan">Clear</button>' +
+        '</div>' +
+        '<div style="font-size:14px;">' + escapeHtml(tp.text) + '</div>' +
+      '</div>'
+    : '';
+
   return (
     '<div class="stack">' +
       '<div>' +
@@ -1505,6 +1557,7 @@ function renderHomeHtml() {
         '<span>' + escapeHtml(primaryLabel) + '</span>' +
         '<span class="sub">' + escapeHtml(primarySub) + '</span>' +
       '</button>' +
+      tomorrowHtml +
       '<div class="workout-list">' + listHtml + '</div>' +
       '<div class="dot-strip" aria-label="Days trained this week">' + dotsHtml + '</div>' +
       '<div class="stack-sm" style="gap:4px;">' +
@@ -1573,6 +1626,14 @@ function bindHomeEvents() {
   document.querySelectorAll('[data-start-workout]').forEach(function (btn) {
     btn.onclick = function () { openWorkout(Number(btn.dataset.startWorkout)); };
   });
+  const clearTp = document.getElementById('clear-tomorrow-btn');
+  if (clearTp) {
+    clearTp.onclick = function () {
+      db.tomorrowPlan = { text: '', workoutId: null };
+      saveData();
+      render();
+    };
+  }
 }
 
 /* ============================================================
@@ -1930,7 +1991,10 @@ function renderWorkoutHtml() {
           (ex.cue ? '<p class="form-cue">' + escapeHtml(ex.cue) + '</p>' : '') +
           (lastLine ? '<p class="last-time tabular">' + escapeHtml(lastLine) + '</p>' : '') +
           (sug ? '<p class="suggestion-line tabular">' + escapeHtml(sug.text) + '</p>' : '') +
-          (isSkipped ? '<div class="label">Skipped for this session</div>' : '<div class="stack-sm">' + setsHtml + '</div>') +
+          (isSkipped
+            ? '<div class="label">Skipped for this session</div>'
+            : '<div class="stack-sm">' + setsHtml + '</div>' +
+              '<button type="button" class="btn btn-secondary btn-sm" style="align-self:flex-start;" data-add-set="' + escapeHtml(item.exId) + '" aria-label="Add extra set">+ Add set</button>') +
           '<div>' +
             (prev && prev.note ? '<div class="label" style="margin-bottom:6px;">Last note: ' + escapeHtml(prev.note) + '</div>' : '') +
             '<input type="text" class="note-input" data-note-ex="' + escapeHtml(item.exId) + '" placeholder="Add note for this exercise" value="' + escapeHtml((session.notes && session.notes[item.exId]) || '') + '" aria-label="Note for ' + escapeHtml(ex.name) + '">' +
@@ -1963,7 +2027,7 @@ function renderWorkoutHtml() {
         '<div style="font-weight:600;">' + escapeHtml(def.name) + '</div>' +
         (session.startedAt
           ? '<button type="button" class="btn btn-secondary btn-sm" id="timer-pause-btn" aria-label="' + (isPaused ? 'Resume session timer' : 'Pause session timer') + '">' + (isPaused ? 'Resume' : 'Pause') + '</button>'
-          : '<span class="label">Target 35:00</span>') +
+          : '<span class="label">Target ' + getTargetMinutes() + ':00</span>') +
       '</div>' +
       '<div class="timer-row">' +
         '<div>' +
@@ -1971,7 +2035,7 @@ function renderWorkoutHtml() {
           '<div id="pace-label" class="label tabular">' + escapeHtml(computePaceText(session, elapsed)) + '</div>' +
         '</div>' +
         '<div style="text-align:right;">' +
-          '<div class="label">Target 35:00</div>' +
+          '<div class="label">Target ' + getTargetMinutes() + ':00</div>' +
           '<div class="label tabular">' + stats.doneSets + ' / ' + stats.totalSets + ' sets</div>' +
         '</div>' +
       '</div>' +
@@ -1994,7 +2058,8 @@ function getNextRestLabel(session, currentExId, currentSetIdx) {
   const def = getSessionWorkoutMeta(session);
   const curIdx = def.items.findIndex(function (it) { return it.exId === currentExId; });
   const curItem = def.items[curIdx];
-  if (currentSetIdx + 1 < curItem.sets) {
+  const setsLen = (session.sets && session.sets[currentExId]) ? session.sets[currentExId].length : 0;
+  if (currentSetIdx + 1 < Math.max(curItem.sets, setsLen)) {
     return 'Set ' + (currentSetIdx + 2) + ' of ' + getExerciseDef(currentExId, session).name;
   }
   for (let i = curIdx + 1; i < def.items.length; i++) {
@@ -2115,6 +2180,32 @@ function bindWorkoutEvents() {
     });
   });
 
+  document.querySelectorAll('[data-add-set]').forEach(function (btn) {
+    btn.onclick = function () {
+      const exId = btn.dataset.addSet;
+      const ex = getExerciseDef(exId, session);
+      const arr = session.sets[exId] || [];
+      const last = arr[arr.length - 1];
+      if (ex.superset) {
+        arr.push({
+          a: { reps: last && last.a ? last.a.reps : 10, weight: last && last.a ? last.a.weight : 0, done: false, pr: false },
+          b: { reps: last && last.b ? last.b.reps : 10, weight: last && last.b ? last.b.weight : 0, done: false, pr: false },
+          done: false
+        });
+      } else {
+        arr.push({
+          reps: last ? last.reps : 10,
+          weight: last ? last.weight : 0,
+          done: false,
+          pr: false
+        });
+      }
+      session.sets[exId] = arr;
+      saveData();
+      render();
+    };
+  });
+
   function getTargetSetObj(el) {
     const exId = el.dataset.ex;
     const setIdx = Number(el.dataset.set);
@@ -2170,6 +2261,7 @@ function bindWorkoutEvents() {
         }
         info.target.pr = checkIsPersonalRecord(session, info.exId, info.setIdx, info.sub, info.target.reps, info.target.weight);
         info.target.done = true;
+        if (info.target.pr) launchPrConfetti();
         const setNowDone = ex.superset ? (info.parent.a.done && info.parent.b.done) : true;
         if (ex.superset) info.parent.done = setNowDone;
         saveData();
@@ -2284,6 +2376,11 @@ function renderFinishHtml() {
       '</div>'
     : '';
 
+  const tp = db.tomorrowPlan || { text: '', workoutId: null };
+  const workoutOptsHtml = '<option value="">Any workout</option>' + getPlanWorkouts().map(function (w) {
+    return '<option value="' + w.id + '"' + (tp.workoutId === w.id ? ' selected' : '') + '>' + escapeHtml(w.name) + '</option>';
+  }).join('');
+
   return (
     '<div class="stack" style="padding-top:16px;">' +
       '<div class="row">' +
@@ -2303,6 +2400,13 @@ function renderFinishHtml() {
         '<label class="label" for="finish-session-note">Session note (optional)</label>' +
         '<input type="text" id="finish-session-note" class="note-input" placeholder="How did this session feel?" value="' + escapeHtml(curNote) + '">' +
       '</div>' +
+      '<div class="card stack-sm">' +
+        '<div class="between">' +
+          '<label class="label" for="finish-tomorrow-note" style="color:var(--accent);font-weight:600;">Tomorrow\'s review / plan</label>' +
+          '<select id="finish-tomorrow-workout" class="select-input" style="width:auto;min-height:36px;padding:4px 10px;font-size:13px;" aria-label="Workout for tomorrow">' + workoutOptsHtml + '</select>' +
+        '</div>' +
+        '<textarea id="finish-tomorrow-note" class="note-input" rows="2" placeholder="What should you do new tomorrow? (e.g. try incline smith, add 1 set)">' + escapeHtml(tp.text || '') + '</textarea>' +
+      '</div>' +
       '<button type="button" class="btn btn-primary" id="finish-home-btn" aria-label="Back to home">Back to home</button>' +
     '</div>'
   );
@@ -2319,6 +2423,19 @@ function bindFinishEvents() {
         saveData();
       }
     });
+  }
+  const tpNote = document.getElementById('finish-tomorrow-note');
+  const tpWorkout = document.getElementById('finish-tomorrow-workout');
+  if (tpNote && tpWorkout) {
+    const saveTomorrow = function () {
+      db.tomorrowPlan = {
+        text: tpNote.value,
+        workoutId: tpWorkout.value ? Number(tpWorkout.value) : null
+      };
+      saveData();
+    };
+    tpNote.addEventListener('input', saveTomorrow);
+    tpWorkout.addEventListener('change', saveTomorrow);
   }
   document.getElementById('finish-home-btn').onclick = function () {
     ui.screen = 'home';
@@ -2484,7 +2601,39 @@ function renderSelectedDayDetailHtml(sessionsByDate) {
   );
 }
 
-function renderHistoryHtml() {
+function sessionMatchesQuery(s, q) {
+  if (!q) return true;
+  const def = getSessionWorkoutMeta(s);
+  if ((def.name || '').toLowerCase().indexOf(q) !== -1) return true;
+  if ((s.sessionNote || '').toLowerCase().indexOf(q) !== -1) return true;
+  return def.items.some(function (item) {
+    const ex = getExerciseDef(item.exId, s);
+    if ((ex.name || '').toLowerCase().indexOf(q) !== -1) return true;
+    const note = (s.notes && s.notes[item.exId]) || '';
+    return note.toLowerCase().indexOf(q) !== -1;
+  });
+}
+
+function renderHistoryResultsHtml() {
+  const q = (ui.historySearch || '').trim().toLowerCase();
+  if (q) {
+    const matches = getAllSessions().filter(function (entry) {
+      const s = entry.session;
+      return s.finished && getSessionStats(s).loggedSets > 0 && sessionMatchesQuery(s, q);
+    });
+    if (!matches.length) {
+      return '<div class="card"><div class="label" style="font-size:15px;">No matching workouts or exercises found.</div></div>';
+    }
+    return (
+      '<div class="card stack-sm">' +
+        '<div class="label tabular">' + matches.length + ' matching session' + (matches.length === 1 ? '' : 's') + '</div>' +
+        matches.map(function (entry) {
+          return renderSessionDetailHtml(entry.weekKey, entry.session);
+        }).join('') +
+      '</div>'
+    );
+  }
+
   const sessionsByDate = getSessionsByDateMap();
   const calendarHtml = renderHistoryCalendarHtml(sessionsByDate);
   const selectedDayHtml = renderSelectedDayDetailHtml(sessionsByDate);
@@ -2573,12 +2722,15 @@ function renderHistoryHtml() {
     }).join('');
   }
 
+  return calendarHtml + selectedDayHtml + monthsHtml;
+}
+
+function renderHistoryHtml() {
   return (
     '<div class="stack">' +
       '<h1 class="h1">History</h1>' +
-      calendarHtml +
-      selectedDayHtml +
-      monthsHtml +
+      '<input type="search" id="history-search" class="note-input" placeholder="Search exercises, workouts, or notes..." value="' + escapeHtml(ui.historySearch || '') + '" aria-label="Search workout history">' +
+      '<div id="history-results" class="stack">' + renderHistoryResultsHtml() + '</div>' +
     '</div>'
   );
 }
@@ -2647,7 +2799,7 @@ function exportMonthCsv(monthKey) {
   downloadFile('workout-' + monthKey + '.csv', csv, 'text/csv;charset=utf-8');
 }
 
-function bindHistoryEvents() {
+function bindHistoryResultEvents() {
   const calPrev = document.getElementById('cal-prev');
   if (calPrev) {
     calPrev.onclick = function () {
@@ -2753,6 +2905,21 @@ function bindHistoryEvents() {
   }
 }
 
+function bindHistoryEvents() {
+  const searchInp = document.getElementById('history-search');
+  if (searchInp) {
+    searchInp.addEventListener('input', function () {
+      ui.historySearch = searchInp.value;
+      const resEl = document.getElementById('history-results');
+      if (resEl) {
+        resEl.innerHTML = renderHistoryResultsHtml();
+        bindHistoryResultEvents();
+      }
+    });
+  }
+  bindHistoryResultEvents();
+}
+
 /* ============================================================
    SCREEN 6: SETTINGS & BACKUP (includes Edit plan entry)
    ============================================================ */
@@ -2764,6 +2931,14 @@ function renderSettingsHtml() {
         '<div class="setting-row">' +
           '<div><div style="font-weight:500;">Workout plan</div><div class="label">Rename, reorder, add, upload images or edit targets</div></div>' +
           '<button type="button" class="btn btn-secondary btn-sm" id="open-edit-plan" aria-label="Edit plan">Edit plan</button>' +
+        '</div>' +
+        '<div class="setting-row">' +
+          '<div><div style="font-weight:500;">Workout target</div><div class="label">Pace timer goal</div></div>' +
+          '<div class="row">' +
+            '<button type="button" class="step-btn" id="set-target-minus" aria-label="Decrease workout target by 5 minutes">-5</button>' +
+            '<span class="tabular" style="min-width:52px;text-align:center;font-weight:600;">' + getTargetMinutes() + 'm</span>' +
+            '<button type="button" class="step-btn" id="set-target-plus" aria-label="Increase workout target by 5 minutes">+5</button>' +
+          '</div>' +
         '</div>' +
         '<div class="setting-row">' +
           '<div><div style="font-weight:500;">Compound rest</div><div class="label">Presses, pulls, legs</div></div>' +
@@ -2826,6 +3001,16 @@ function bindSettingsEvents() {
     ui.screen = 'edit-plan';
     render();
     window.scrollTo(0, 0);
+  };
+  document.getElementById('set-target-minus').onclick = function () {
+    db.settings.targetMinutes = Math.max(10, getTargetMinutes() - 5);
+    saveData();
+    render();
+  };
+  document.getElementById('set-target-plus').onclick = function () {
+    db.settings.targetMinutes = Math.min(120, getTargetMinutes() + 5);
+    saveData();
+    render();
   };
   document.getElementById('set-comp-minus').onclick = function () {
     db.settings.restCompound = Math.max(15, db.settings.restCompound - 15);
@@ -3058,6 +3243,10 @@ function renderEditPlanHtml() {
       '</div>' +
       '<div class="label">Changes apply to future sessions only. Renaming keeps exercise history linked.</div>' +
       '<div class="seg-tabs" role="tablist">' + tabsHtml + '</div>' +
+      '<div class="card field-stack">' +
+        '<label class="label" for="plan-workout-name">Workout name</label>' +
+        '<input type="text" id="plan-workout-name" class="note-input" value="' + escapeHtml(curWorkout.name) + '" aria-label="Workout name">' +
+      '</div>' +
       '<div class="stack-sm">' + (itemsHtml || '<div class="card"><div class="label">No exercises in this workout. Add one below.</div></div>') + '</div>' +
       '<div class="card stack-sm">' +
         '<div class="h2">Add exercise to ' + escapeHtml(curWorkout.name) + '</div>' +
@@ -3112,6 +3301,19 @@ function bindEditPlanEvents() {
       render();
     };
   });
+
+  const wNameInp = document.getElementById('plan-workout-name');
+  if (wNameInp) {
+    wNameInp.addEventListener('input', function () {
+      const val = wNameInp.value.trim();
+      if (val) {
+        curWorkout.name = val;
+        const tabBtn = document.querySelector('[data-plan-tab="' + curWorkout.id + '"]');
+        if (tabBtn) tabBtn.textContent = val;
+        saveData();
+      }
+    });
+  }
 
   document.querySelectorAll('[data-plan-name]').forEach(function (inp) {
     inp.addEventListener('input', function () {

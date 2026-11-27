@@ -4,11 +4,12 @@ A lightweight, mobile-first personal workout tracker that runs locally in the br
 
 ## Features
 
-- **4-Day Workout Split**: Push, Pull, Legs, and Upper workouts with a 35-minute target pace clock, automatic rest timer (with sound & haptics), and double-progression weight/rep suggestions.
-- **Personal Records & Progress**: Automatic PR detection, per-exercise top-set weight and volume charts, 12-week total volume bar chart, and bodyweight tracking.
-- **Calendar & History**: Interactive monthly calendar showing workout days—click any date to inspect the workouts, sets, reps, weights, PRs, notes, and bodyweight logged that day, plus monthly CSV export.
-- **Custom Plan & Image Uploads**: Edit exercise names, sets, rep ranges, rest times, and upload custom exercise images (automatically resized/compressed for local storage).
-- **Backup & Restore**: Export and import all workout history, bodyweight logs, settings, and custom plans as JSON.
+- **4-Day Workout Split**: Push, Pull, Legs, and Upper workouts (all renameable) with a configurable target pace clock, `+ Add set` mid-workout, automatic rest timer (with sound & haptics), and double-progression weight/rep suggestions.
+- **Personal Records & Progress**: Automatic PR detection with confetti celebration, per-exercise top-set weight and volume charts, 12-week total volume bar chart, and bodyweight tracking.
+- **Tomorrow's Review / Plan**: Post-workout review box to note what to try or change next session, surfaced right on the Home screen.
+- **Calendar & History**: Interactive monthly calendar showing workout days—click any date to inspect or delete workouts, search across exercises/workouts/notes, and export monthly CSVs.
+- **Custom Plan & Image Uploads**: Edit exercise names, form cues, sets, rep ranges, rest times, and upload custom exercise images stored in IndexedDB.
+- **Theme & Backup**: Auto/Light/Dark theme toggle, plus full JSON backup and restore (including custom images).
 
 ## Running Locally
 
