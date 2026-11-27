@@ -1995,10 +1995,6 @@ function renderWorkoutHtml() {
             ? '<div class="label">Skipped for this session</div>'
             : '<div class="stack-sm">' + setsHtml + '</div>' +
               '<button type="button" class="btn btn-secondary btn-sm" style="align-self:flex-start;" data-add-set="' + escapeHtml(item.exId) + '" aria-label="Add extra set">+ Add set</button>') +
-          '<div>' +
-            (prev && prev.note ? '<div class="label" style="margin-bottom:6px;">Last note: ' + escapeHtml(prev.note) + '</div>' : '') +
-            '<input type="text" class="note-input" data-note-ex="' + escapeHtml(item.exId) + '" placeholder="Add note for this exercise" value="' + escapeHtml((session.notes && session.notes[item.exId]) || '') + '" aria-label="Note for ' + escapeHtml(ex.name) + '">' +
-          '</div>' +
           '<div class="between">' +
             '<span class="label">Rest: ' + getItemRestSeconds(item, ex) + 's</span>' +
             '<button type="button" class="btn btn-ghost btn-sm" data-skip-ex="' + escapeHtml(item.exId) + '" aria-label="' + (isSkipped ? 'Unskip ' : 'Skip ') + escapeHtml(ex.name) + '">' + (isSkipped ? 'Unskip exercise' : 'Skip exercise') + '</button>' +
@@ -2048,7 +2044,11 @@ function renderWorkoutHtml() {
       '<button type="button" class="btn btn-ghost btn-sm" id="reset-workout-btn" aria-label="Reset workout">Reset workout</button>' +
     '</div>' +
     '<div>' + cardsHtml + '</div>' +
-    '<div style="margin-top:20px;">' +
+    '<div class="card stack-sm" style="margin-top:16px;">' +
+      '<label class="label" for="workout-session-note">Workout note (optional)</label>' +
+      '<textarea id="workout-session-note" class="note-input" rows="2" placeholder="Overall note for this workout...">' + escapeHtml(session.sessionNote || '') + '</textarea>' +
+    '</div>' +
+    '<div style="margin-top:16px;">' +
       '<button type="button" class="btn ' + (allHandled ? 'btn-accent' : 'btn-primary') + '" style="width:100%;" id="finish-workout-btn" aria-label="Finish workout">Finish workout</button>' +
     '</div>'
   );
@@ -2173,12 +2173,13 @@ function bindWorkoutEvents() {
     };
   });
 
-  document.querySelectorAll('[data-note-ex]').forEach(function (input) {
-    input.addEventListener('input', function () {
-      session.notes[input.dataset.noteEx] = input.value;
+  const sessionNoteInp = document.getElementById('workout-session-note');
+  if (sessionNoteInp) {
+    sessionNoteInp.addEventListener('input', function () {
+      session.sessionNote = sessionNoteInp.value;
       saveData();
     });
-  });
+  }
 
   document.querySelectorAll('[data-add-set]').forEach(function (btn) {
     btn.onclick = function () {
@@ -2516,7 +2517,7 @@ function renderSessionDetailHtml(weekKey, s) {
           '<button type="button" class="btn btn-ghost btn-sm" style="min-height:36px;padding:0 6px;color:var(--danger);" data-delete-session-wk="' + escapeHtml(weekKey) + '" data-delete-session-id="' + escapeHtml(s.id) + '" aria-label="Delete session">Delete</button>' +
         '</div>' +
       '</div>' +
-      (s.sessionNote ? '<div class="label">Session note: ' + escapeHtml(s.sessionNote) + '</div>' : '') +
+      (s.sessionNote ? '<div style="font-size:14px;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;"><span class="label" style="font-weight:600;">Workout note:</span> ' + escapeHtml(s.sessionNote) + '</div>' : '') +
       exRows +
     '</div>'
   );
