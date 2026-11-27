@@ -1584,6 +1584,7 @@ function renderHomeHtml() {
     '<div class="stack">' +
       '<div class="home-header home-anim">' +
         '<span class="week-pill">' + escapeHtml(formatWeekLabel(weekInfo.key)) + '</span>' +
+        '<div class="label" style="font-weight:500;">' + escapeHtml(formatFullDate(toLocalDateStr(now))) + '</div>' +
         '<h1 class="home-title">Workout</h1>' +
       '</div>' +
       '<button type="button" class="home-cta home-anim home-anim-d1" id="home-primary-btn" aria-label="' + escapeHtml(primaryLabel) + '">' +
