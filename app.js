@@ -263,7 +263,7 @@ let storageAvailable = true;
 function defaultData() {
   return {
     version: 3,
-    settings: { sound: true, restCompound: 90, restIsolation: 60 },
+    settings: { sound: true, restCompound: 90, restIsolation: 60, theme: 'auto' },
     weeks: {},
     bodyweight: [],
     plan: cloneDefaultPlan()
@@ -281,7 +281,7 @@ function normalizeData(parsed) {
   }
   return {
     version: 3,
-    settings: Object.assign({ sound: true, restCompound: 90, restIsolation: 60 }, parsed.settings || {}),
+    settings: Object.assign({ sound: true, restCompound: 90, restIsolation: 60, theme: 'auto' }, parsed.settings || {}),
     weeks: parsed.weeks || {},
     bodyweight: Array.isArray(parsed.bodyweight) ? parsed.bodyweight : [],
     plan: plan
@@ -299,7 +299,17 @@ function loadData() {
   }
 }
 
+function applyTheme() {
+  const t = (db.settings && db.settings.theme) || 'auto';
+  if (t === 'light' || t === 'dark') {
+    document.documentElement.setAttribute('data-theme', t);
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+}
+
 let db = loadData();
+applyTheme();
 
 function saveData() {
   try {
@@ -1380,6 +1390,7 @@ function showConfirm(title, message, confirmLabel, onConfirm, isDanger) {
    NAVIGATION & RENDER ROUTER
    ============================================================ */
 function render() {
+  applyTheme();
   const app = document.getElementById('app');
   const nav = document.getElementById('bottom-nav');
   const inWorkout = ui.screen === 'workout';
@@ -2383,7 +2394,10 @@ function renderSessionDetailHtml(weekKey, s) {
           '<span style="font-weight:600;">' + escapeHtml(def.name) + ' · ' + escapeHtml(formatShortDate(s.date)) + '</span>' +
           (sessionPRs.length ? '<span class="pr-tag">' + sessionPRs.length + ' PR</span>' : '') +
         '</div>' +
-        '<div class="label tabular">' + formatClock(s.activeSeconds || 0) + ' · ' + formatWeight(stats.volume) + ' kg</div>' +
+        '<div class="row" style="gap:8px;">' +
+          '<span class="label tabular">' + formatClock(s.activeSeconds || 0) + ' · ' + formatWeight(stats.volume) + ' kg</span>' +
+          '<button type="button" class="btn btn-ghost btn-sm" style="min-height:36px;padding:0 6px;color:var(--danger);" data-delete-session-wk="' + escapeHtml(weekKey) + '" data-delete-session-id="' + escapeHtml(s.id) + '" aria-label="Delete session">Delete</button>' +
+        '</div>' +
       '</div>' +
       (s.sessionNote ? '<div class="label">Session note: ' + escapeHtml(s.sessionNote) + '</div>' : '') +
       exRows +
@@ -2688,6 +2702,24 @@ function bindHistoryEvents() {
     btn.onclick = function () { exportMonthCsv(btn.dataset.exportCsv); };
   });
 
+  document.querySelectorAll('[data-delete-session-id]').forEach(function (btn) {
+    btn.onclick = function () {
+      const wk = btn.dataset.deleteSessionWk;
+      const sid = btn.dataset.deleteSessionId;
+      showConfirm(
+        'Delete session?',
+        'This logged workout will be permanently removed from your history.',
+        'Delete',
+        function () {
+          deleteSession(wk, sid);
+          ui.editingSet = null;
+          render();
+        },
+        true
+      );
+    };
+  });
+
   document.querySelectorAll('[data-edit-set]').forEach(function (btn) {
     btn.onclick = function () {
       ui.editingSet = {
@@ -2753,6 +2785,15 @@ function renderSettingsHtml() {
           '<div><div style="font-weight:500;">Rest timer sound</div><div class="label">Beep when rest finishes</div></div>' +
           '<button type="button" class="toggle" id="set-sound-toggle" role="switch" aria-checked="' + (db.settings.sound ? 'true' : 'false') + '" aria-label="Toggle rest timer sound"></button>' +
         '</div>' +
+        '<div class="setting-row">' +
+          '<div><div style="font-weight:500;">Theme</div><div class="label">Appearance</div></div>' +
+          '<div class="row" style="gap:6px;">' +
+            ['auto', 'light', 'dark'].map(function (mode) {
+              const active = ((db.settings.theme || 'auto') === mode);
+              return '<button type="button" class="btn ' + (active ? 'btn-accent' : 'btn-secondary') + ' btn-sm" style="min-height:38px;padding:0 10px;text-transform:capitalize;" data-set-theme="' + mode + '">' + mode + '</button>';
+            }).join('') +
+          '</div>' +
+        '</div>' +
       '</div>' +
       '<div class="card stack-sm">' +
         '<div class="label">Backup (history, bodyweight, and plan)</div>' +
@@ -2812,6 +2853,15 @@ function bindSettingsEvents() {
     saveData();
     render();
   };
+
+  document.querySelectorAll('[data-set-theme]').forEach(function (btn) {
+    btn.onclick = function () {
+      db.settings.theme = btn.dataset.setTheme;
+      applyTheme();
+      saveData();
+      render();
+    };
+  });
 
   document.getElementById('backup-download').onclick = function () {
     const name = 'workout-backup-' + toLocalDateStr(new Date()) + '.json';
@@ -2943,6 +2993,10 @@ function renderEditPlanHtml() {
           '<label class="label" for="plan-name-' + idx + '">Name</label>' +
           '<input type="text" id="plan-name-' + idx + '" class="note-input" data-plan-name="' + escapeHtml(item.exId) + '" value="' + escapeHtml(ex.name) + '">' +
         '</div>' +
+        '<div class="field-stack">' +
+          '<label class="label" for="plan-cue-' + idx + '">Form cue</label>' +
+          '<input type="text" id="plan-cue-' + idx + '" class="note-input" data-plan-cue="' + escapeHtml(item.exId) + '" value="' + escapeHtml(ex.cue || '') + '" placeholder="One-line form cue">' +
+        '</div>' +
         '<div class="plan-grid">' +
           '<div class="field-stack">' +
             '<label class="label" for="plan-sets-' + idx + '">Sets</label>' +
@@ -3065,6 +3119,16 @@ function bindEditPlanEvents() {
       const val = inp.value.trim();
       if (val && db.plan.exercises[exId]) {
         db.plan.exercises[exId].name = val;
+        saveData();
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-plan-cue]').forEach(function (inp) {
+    inp.addEventListener('input', function () {
+      const exId = inp.dataset.planCue;
+      if (db.plan.exercises[exId]) {
+        db.plan.exercises[exId].cue = inp.value.trim();
         saveData();
       }
     });

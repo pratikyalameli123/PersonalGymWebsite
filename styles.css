@@ -17,7 +17,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #111111;
     --surface: #1A1A1A;
     --text: #F5F5F4;
@@ -27,6 +27,17 @@
     --accent-soft: rgba(63, 143, 102, 0.16);
     --danger: #F04438;
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #111111;
+  --surface: #1A1A1A;
+  --text: #F5F5F4;
+  --muted: #8E8E93;
+  --border: #2C2C2E;
+  --accent: #3F8F66;
+  --accent-soft: rgba(63, 143, 102, 0.16);
+  --danger: #F04438;
 }
 
 /* Base reset & mobile rules */
